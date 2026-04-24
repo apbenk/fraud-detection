@@ -1,31 +1,57 @@
 import pandas as pd
+from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report, roc_auc_score
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
+from imblearn.over_sampling import SMOTE
 
+# Load data
 df = pd.read_csv("data/credit_fraud.csv")
 
-print(df.head())
-print(df.info())
-
-print(df['is_fraud'].value_counts())
-
-# handle missing value
+# Drop missing values
 df = df.dropna()
 
-# encode categorical
+# Encode categorical
 df = pd.get_dummies(df)
 
-# pisahkan fitur & label
+# Split features & target
 X = df.drop("is_fraud", axis=1)
 y = df["is_fraud"]
 
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
+# Train-test split (IMPORTANT: stratify)
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, stratify=y, random_state=42
+)
 
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+# Handle imbalance using SMOTE
+smote = SMOTE(random_state=42)
+X_train, y_train = smote.fit_resample(X_train, y_train)
 
-model = RandomForestClassifier()
-model.fit(X_train, y_train)
+# Pipeline (scaling + model)
+pipeline = Pipeline([
+    ("scaler", StandardScaler()),
+    ("model", RandomForestClassifier(
+        n_estimators=200,
+        max_depth=10,
+        class_weight="balanced",
+        random_state=42
+    ))
+])
 
-from sklearn.metrics import classification_report
+# Cross-validation
+cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+scores = cross_val_score(pipeline, X_train, y_train, cv=cv, scoring="roc_auc")
 
-y_pred = model.predict(X_test)
+print("CV ROC-AUC:", scores.mean())
+
+# Train
+pipeline.fit(X_train, y_train)
+
+# Predict
+y_pred = pipeline.predict(X_test)
+y_proba = pipeline.predict_proba(X_test)[:, 1]
+
+# Evaluation
 print(classification_report(y_test, y_pred))
+print("ROC-AUC:", roc_auc_score(y_test, y_proba))
